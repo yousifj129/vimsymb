@@ -147,146 +147,188 @@ class Expression
         switch (node.Value)
         {
             case "+":
-                if (node.Left.Value == "0") return node.Right;
-                if (node.Right.Value == "0") return node.Left;
-                if (double.TryParse(node.Left.Value, out double leftVal) && 
-                    double.TryParse(node.Right.Value, out double rightVal))
-                    return new ExpressionNode((leftVal + rightVal).ToString());
-                break;
+            case "-":
+                return SimplifyAdditionSubtraction(node);
             case "*":
-                if (node.Left.Value == "0" || node.Right.Value == "0")
-                    return new ExpressionNode("0");
-                if (node.Left.Value == "1") return node.Right;
-                if (node.Right.Value == "1") return node.Left;
-                if (double.TryParse(node.Left.Value, out leftVal) && 
-                    double.TryParse(node.Right.Value, out rightVal))
-                    return new ExpressionNode((leftVal * rightVal).ToString());
-                break;
+                return SimplifyMultiplication(node);
             case "^":
-                if (node.Right.Value == "1") return node.Left;
-                if (node.Right.Value == "0") return new ExpressionNode("1");
-                if (node.Left.Value == "0") return new ExpressionNode("0");
-                if (double.TryParse(node.Left.Value, out leftVal) && 
-                    double.TryParse(node.Right.Value, out rightVal))
-                    return new ExpressionNode(Math.Pow(leftVal, rightVal).ToString());
-                break;
+                return SimplifyPower(node);
         }
 
         return node;
     }
 
-    private void CollectTerms(ExpressionNode node, Dictionary<string, double> terms, ref double constant, double sign)
+    private ExpressionNode SimplifyAdditionSubtraction(ExpressionNode node)
+    {
+        var terms = new Dictionary<string, double>();
+        CollectTerms(node, terms, 1);
+        return ReconstructFromTerms(terms);
+    }
+
+    private ExpressionNode SimplifyMultiplication(ExpressionNode node)
+    {
+        var factors = new Dictionary<string, double>();
+        CollectFactors(node, factors);
+        return ReconstructFromFactors(factors);
+    }
+
+    private void CollectTerms(ExpressionNode node, Dictionary<string, double> terms, double coefficient)
     {
         if (node == null) return;
 
         switch (node.Value)
         {
             case "+":
-                CollectTerms(node.Left, terms, ref constant, sign);
-                CollectTerms(node.Right, terms, ref constant, sign);
+                CollectTerms(node.Left, terms, coefficient);
+                CollectTerms(node.Right, terms, coefficient);
                 break;
             case "-":
-                CollectTerms(node.Left, terms, ref constant, sign);
-                CollectTerms(node.Right, terms, ref constant, -sign);
+                CollectTerms(node.Left, terms, coefficient);
+                CollectTerms(node.Right, terms, -coefficient);
                 break;
             case "*":
-                if (node.Left != null && node.Right != null)
+                if (double.TryParse(node.Left.Value, out double leftCoeff))
                 {
-                    if (double.TryParse(node.Left.Value, out double leftCoeff))
-                    {
-                        AddTerm(terms, node.Right.Value, leftCoeff * sign);
-                    }
-                    else if (double.TryParse(node.Right.Value, out double rightCoeff))
-                    {
-                        AddTerm(terms, node.Left.Value, rightCoeff * sign);
-                    }
-                    else
-                    {
-                        AddTerm(terms, $"({node.Left.Value}*{node.Right.Value})", sign);
-                    }
+                    AddOrUpdateTerm(terms, node.Right.Value, leftCoeff * coefficient);
+                }
+                else if (double.TryParse(node.Right.Value, out double rightCoeff))
+                {
+                    AddOrUpdateTerm(terms, node.Left.Value, rightCoeff * coefficient);
                 }
                 else
                 {
-                    AddTerm(terms, node.Value, sign);
+                    AddOrUpdateTerm(terms, $"{node.Left.Value}*{node.Right.Value}", coefficient);
                 }
                 break;
             default:
-                if (double.TryParse(node.Value, out double number))
-                {
-                    constant += sign * number;
-                }
+                if (double.TryParse(node.Value, out double numericValue))
+                    AddOrUpdateTerm(terms, "constant", numericValue * coefficient);
                 else
-                {
-                    AddTerm(terms, node.Value, sign);
-                }
+                    AddOrUpdateTerm(terms, node.Value, coefficient);
                 break;
         }
     }
 
-    private void AddTerm(Dictionary<string, double> terms, string key, double value)
+    private void CollectFactors(ExpressionNode node, Dictionary<string, double> factors, double coefficient = 1)
     {
-        if (!terms.ContainsKey(key))
-            terms[key] = 0;
-        terms[key] += value;
-    }
-    public Expression Derivative(string variable)
-    {
-        Expression result = new Expression();
-        result.Root = DerivativeNode(this.Root, variable);
-        return result.Simplify();
-    }
+        if (node == null) return;
 
-    private ExpressionNode DerivativeNode(ExpressionNode node, string variable)
-    {
-        if (node == null) return null;
-
-        switch (node.Value)
+        if (node.Value == "*")
         {
-            case "+":
-            case "-":
-                return new ExpressionNode(node.Value,
-                    DerivativeNode(node.Left, variable),
-                    DerivativeNode(node.Right, variable));
-
-            case "*":
-                if (node.Left.Value == variable && !IsVariable(node.Right.Value))
-                    return node.Right.Clone();
-                else if (node.Right.Value == variable && !IsVariable(node.Left.Value))
-                    return node.Left.Clone();
-                else
-                    // Product rule: d(u*v)/dx = u'v + uv'
-                    return new ExpressionNode("+",
-                        new ExpressionNode("*", DerivativeNode(node.Left, variable), node.Right.Clone()),
-                        new ExpressionNode("*", node.Left.Clone(), DerivativeNode(node.Right, variable)));
-
-            case "^":
-                if (node.Left.Value == variable && double.TryParse(node.Right.Value, out double power))
-                {
-                    // Power rule: d(x^n)/dx = n * x^(n-1)
-                    return new ExpressionNode("*",
-                        new ExpressionNode(power.ToString()),
-                        new ExpressionNode("^",
-                            new ExpressionNode(variable),
-                            new ExpressionNode((power - 1).ToString())
-                        )
-                    );
-                }
-                break;
-
-            default:
-                if (node.Value == variable)
-                    return new ExpressionNode("1");
-                else if (double.TryParse(node.Value, out _) || node.Value != variable)
-                    return new ExpressionNode("0");
-                break;
+            CollectFactors(node.Left, factors);
+            CollectFactors(node.Right, factors);
         }
-
-        throw new NotImplementedException($"Derivative not implemented for: {PrintExpressionRecursive(node)}");
+        else if (double.TryParse(node.Value, out double numericValue))
+        {
+            AddOrUpdateTerm(factors, "constant", numericValue * coefficient);
+        }
+        else
+        {
+            AddOrUpdateTerm(factors, node.Value, 1 * coefficient);
+        }
     }
 
-    private bool IsVariable(string value)
+    private void AddOrUpdateTerm(Dictionary<string, double> terms, string key, double value)
     {
-        return !double.TryParse(value, out _);
+        if (terms.ContainsKey(key))
+            terms[key] += value;
+        else
+            terms[key] = value;
+    }
+
+    private ExpressionNode ReconstructFromTerms(Dictionary<string, double> terms)
+    {
+        List<ExpressionNode> termNodes = new List<ExpressionNode>();
+
+        foreach (var term in terms)
+        {
+            if (Math.Abs(term.Value) > 1e-10) // Ignore terms with near-zero coefficients
+            {
+                if (term.Key == "constant")
+                {
+                    termNodes.Add(new ExpressionNode(term.Value.ToString()));
+                }
+                else if (Math.Abs(term.Value - 1) < 1e-10)
+                {
+                    termNodes.Add(new ExpressionNode(term.Key));
+                }
+                else if (Math.Abs(term.Value + 1) < 1e-10)
+                {
+                    termNodes.Add(new ExpressionNode("-", new ExpressionNode(term.Key)));
+                }
+                else
+                {
+                    termNodes.Add(new ExpressionNode("*",
+                        new ExpressionNode(term.Value.ToString()),
+                        new ExpressionNode(term.Key)));
+                }
+            }
+        }
+
+        return CombineNodes(termNodes, "+");
+    }
+
+    private ExpressionNode ReconstructFromFactors(Dictionary<string, double> factors)
+    {
+        List<ExpressionNode> factorNodes = new List<ExpressionNode>();
+        double constantFactor = 1;
+
+        foreach (var factor in factors)
+        {
+            if (Math.Abs(factor.Value) > 1e-10) // Ignore factors with near-zero exponents
+            {
+                if (factor.Key == "constant")
+                {
+                    constantFactor *= factor.Value;
+                }
+                else if (Math.Abs(factor.Value - 1) < 1e-10)
+                {
+                    factorNodes.Add(new ExpressionNode(factor.Key));
+                }
+                else
+                {
+                    factorNodes.Add(new ExpressionNode("^",
+                        new ExpressionNode(factor.Key),
+                        new ExpressionNode(factor.Value.ToString())));
+                }
+            }
+        }
+
+        if (Math.Abs(constantFactor - 1) > 1e-10)
+        {
+            factorNodes.Insert(0, new ExpressionNode(constantFactor.ToString()));
+        }
+
+        return CombineNodes(factorNodes, "*");
+    }
+
+    private ExpressionNode CombineNodes(List<ExpressionNode> nodes, string operation)
+    {
+        if (nodes.Count == 0)
+            return new ExpressionNode(operation == "*" ? "1" : "0");
+        if (nodes.Count == 1)
+            return nodes[0];
+
+        ExpressionNode result = nodes[0];
+        for (int i = 1; i < nodes.Count; i++)
+        {
+            result = new ExpressionNode(operation, result, nodes[i]);
+        }
+
+        return result;
+    }
+    private ExpressionNode SimplifyPower(ExpressionNode node)
+    {
+        if (node.Right.Value == "1") return node.Left;
+        if (node.Right.Value == "0") return new ExpressionNode("1");
+        if (node.Left.Value == "0") return new ExpressionNode("0");
+        if (node.Left.Value == "1") return new ExpressionNode("1");
+
+        if (double.TryParse(node.Left.Value, out double leftVal) && 
+            double.TryParse(node.Right.Value, out double rightVal))
+            return new ExpressionNode(Math.Pow(leftVal, rightVal).ToString());
+
+        return node; // Keep symbolic powers as is
     }
 
 }
