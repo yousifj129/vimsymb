@@ -28,10 +28,10 @@ class Expression
     public Expression(){
         Root = null;
     }
-    public Expression(string eq) {
+    public Expression(string eq){
         Root = new ExpressionNode(eq);
         this.ParseExpression(eq);
-     }
+    }
 
     public void ParseExpression(string expression)
     {
@@ -128,7 +128,7 @@ class Expression
         result.Root = new ExpressionNode("/", this.Root.Clone(), other.Root.Clone());
         return result.Simplify();
     }
-
+    
     public Expression Simplify()
     {
         Expression result = new Expression();
@@ -172,6 +172,7 @@ class Expression
         return ReconstructFromFactors(factors);
     }
 
+    
     private void CollectTerms(ExpressionNode node, Dictionary<string, double> terms, double coefficient)
     {
         if (node == null) return;
